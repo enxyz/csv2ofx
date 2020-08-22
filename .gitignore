@@ -1,3 +1,9 @@
+# financials
+_mods/*
+.vscode 
+env/
+.vsls.json
+
 *.py[cod]
 .cookiecutter
 *.ipynb
