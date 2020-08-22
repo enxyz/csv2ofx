@@ -57,7 +57,8 @@ class OFX(Content):
             'CHECKING': ('checking', 'income', 'receivable', 'payable'),
             'SAVINGS': ('savings',),
             'MONEYMRKT': ('market', 'cash', 'expenses'),
-            'CREDITLINE': ('visa', 'master', 'express', 'discover')
+            'CREDITLINE': ('visa', 'master', 'express', 'discover'),
+            'INVESTMENTS': ('brokerage')
         }
 
     def header(self, **kwargs):
@@ -81,6 +82,10 @@ class OFX(Content):
             >>> header == result.replace('\\n', '').replace('\\t', '')
             True
         """
+        # TODOEM
+        # print("HEADER...")
+        # print(kwargs)
+        # print(self.__dict__)
         kwargs.setdefault('language', 'ENG')
 
         # yyyymmddhhmmss
@@ -99,8 +104,15 @@ class OFX(Content):
         content += '\t\t\t<LANGUAGE>%(language)s</LANGUAGE>\n' % kwargs
         content += '\t\t</SONRS>\n'
         content += '\t</SIGNONMSGSRSV1>\n'
-        content += '\t<BANKMSGSRSV1>\n'
-        content += '\t\t<%s>\n' % self.resp_type
+
+        if self.is_investment:
+            print("OFX > investment") # TODOEM: delete
+            content += '\t<INVSTMTMSGSRSV1>\n'
+            content += '\t\t<%s>\n' % self.resp_type
+        else:
+            content += '\t<BANKMSGSRSV1>\n'
+            content += '\t\t<%s>\n' % self.resp_type
+
         content += '\t\t\t<TRNUID></TRNUID>\n'
         content += '\t\t\t<STATUS>\n'
         content += '\t\t\t\t<CODE>0</CODE>\n'
@@ -186,20 +198,37 @@ class OFX(Content):
             >>> start == result.replace('\\n', '').replace('\\t', '')
             True
         """
-        kwargs.update({
-            'start_date': self.start.strftime('%Y%m%d'),
-            'end_date': self.end.strftime('%Y%m%d')})
+        if not self.is_investment:
+            kwargs.update({
+                'start_date': self.start.strftime('%Y%m%d'),
+                'end_date': self.end.strftime('%Y%m%d')})
+            content = '\t\t\t<STMTRS>\n'
+            content += '\t\t\t\t<CURDEF>%(currency)s</CURDEF>\n' % kwargs
+            content += '\t\t\t\t<BANKACCTFROM>\n'
+            content += '\t\t\t\t\t<BANKID>%(bank_id)s</BANKID>\n' % kwargs
+            content += '\t\t\t\t\t<ACCTID>%(account_id)s</ACCTID>\n' % kwargs
+            content += '\t\t\t\t\t<ACCTTYPE>%(account_type)s</ACCTTYPE>\n' % kwargs
+            content += '\t\t\t\t</BANKACCTFROM>\n'
+            content += '\t\t\t\t<BANKTRANLIST>\n'
+            content += '\t\t\t\t\t<DTSTART>%(start_date)s</DTSTART>\n' % kwargs
+            content += '\t\t\t\t\t<DTEND>%(end_date)s</DTEND>\n' % kwargs
 
-        content = '\t\t\t<STMTRS>\n'
-        content += '\t\t\t\t<CURDEF>%(currency)s</CURDEF>\n' % kwargs
-        content += '\t\t\t\t<BANKACCTFROM>\n'
-        content += '\t\t\t\t\t<BANKID>%(bank_id)s</BANKID>\n' % kwargs
-        content += '\t\t\t\t\t<ACCTID>%(account_id)s</ACCTID>\n' % kwargs
-        content += '\t\t\t\t\t<ACCTTYPE>%(account_type)s</ACCTTYPE>\n' % kwargs
-        content += '\t\t\t\t</BANKACCTFROM>\n'
-        content += '\t\t\t\t<BANKTRANLIST>\n'
-        content += '\t\t\t\t\t<DTSTART>%(start_date)s</DTSTART>\n' % kwargs
-        content += '\t\t\t\t\t<DTEND>%(end_date)s</DTEND>\n' % kwargs
+        else:
+            kwargs.update({
+                'start_date': self.start.strftime('%Y%m%d'),
+                'end_date': self.end.strftime('%Y%m%d')})
+            content = '\t\t\t<INVSTMTRS>\n'
+            content += '\t\t\t\t<CURDEF>%(currency)s</CURDEF>\n' % kwargs
+            content += '\t\t\t\t<INVACCTFROM>\n'
+            content += '\t\t\t\t\t<BROKERID>%(bank_id)s</BROKERID>\n' % kwargs
+            content += '\t\t\t\t\t<ACCTID>%(account_id)s</ACCTID>\n' % kwargs
+            content += '\t\t\t\t\t<ACCTTYPE>%(account_type)s</ACCTTYPE>\n' % kwargs
+            content += '\t\t\t\t</INVACCTFROM>\n'
+            content += '\t\t\t\t<INVTRANLIST>\n'
+            content += '\t\t\t\t\t<DTSTART>%(start_date)s</DTSTART>\n' % kwargs
+            content += '\t\t\t\t\t<DTEND>%(end_date)s</DTEND>\n' % kwargs
+            pass
+        
         return content
 
     def transaction(self, **kwargs):
@@ -270,15 +299,19 @@ class OFX(Content):
             True
         """
         time_stamp = kwargs['date'].strftime('%Y%m%d%H%M%S')  # yyyymmddhhmmss
-        content = '\t\t\t\t</BANKTRANLIST>\n'
 
-        if kwargs.get('balance') is not None:
-            content += '\t\t\t\t<LEDGERBAL>\n'
-            content += '\t\t\t\t\t<BALAMT>%(balance)0.2f</BALAMT>\n' % kwargs
-            content += '\t\t\t\t\t<DTASOF>%s</DTASOF>\n' % time_stamp
-            content += '\t\t\t\t</LEDGERBAL>\n'
-
-        content += '\t\t\t</STMTRS>\n'
+        if not self.is_investment:
+            content = '\t\t\t\t</BANKTRANLIST>\n'
+            if kwargs.get('balance') is not None:
+                content += '\t\t\t\t<LEDGERBAL>\n'
+                content += '\t\t\t\t\t<BALAMT>%(balance)0.2f</BALAMT>\n' % kwargs
+                content += '\t\t\t\t\t<DTASOF>%s</DTASOF>\n' % time_stamp
+                content += '\t\t\t\t</LEDGERBAL>\n'
+            content += '\t\t\t</STMTRS>\n'
+            
+        else:
+            content = '\t\t\t\t</INVTRANLIST>\n'
+            content += '\t\t\t</INVSTMTTRNRS>\n'
         return content
 
     def transfer(self, **kwargs):
@@ -436,7 +469,10 @@ class OFX(Content):
         else:
             content = ''
 
-        content += "\t\t</%s>\n\t</BANKMSGSRSV1>\n</OFX>\n" % self.resp_type
+        if self.is_investment:
+            content += "\t\t</%s>\n\t</INVSTMTMSGSRSV1>\n</OFX>\n" % self.resp_type # TODOEM: self.resp_type needs to be set to INVSTMTTRNRS by previous processing. Is currently set to STMTTRNRS
+        else:
+            content += "\t\t</%s>\n\t</BANKMSGSRSV1>\n</OFX>\n" % self.resp_type
         return content
 
     def gen_body(self, data):  # noqa: C901
