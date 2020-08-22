@@ -108,12 +108,14 @@ class OFX(Content):
         if self.is_investment:
             print("OFX > investment") # TODOEM: delete
             content += '\t<INVSTMTMSGSRSV1>\n'
-            content += '\t\t<%s>\n' % self.resp_type
+            content += '\t\t<INV%s>\n' % self.resp_type
+            content += '\t\t\t<TRNUID>0</TRNUID>\n'
+        
         else:
             content += '\t<BANKMSGSRSV1>\n'
             content += '\t\t<%s>\n' % self.resp_type
+            content += '\t\t\t<TRNUID></TRNUID>\n'
 
-        content += '\t\t\t<TRNUID></TRNUID>\n'
         content += '\t\t\t<STATUS>\n'
         content += '\t\t\t\t<CODE>0</CODE>\n'
         content += '\t\t\t\t<SEVERITY>INFO</SEVERITY>\n'
@@ -260,24 +262,54 @@ class OFX(Content):
             True
         """
         time_stamp = kwargs['date'].strftime('%Y%m%d%H%M%S')  # yyyymmddhhmmss
+        print("transaction")
+        print(kwargs)
+        print(self.__dict__)
+        if self.is_investment:
+            content =  '\t\t\t\t\t<BUYSTOCK>\n'
+            content += '\t\t\t\t\t\t<INVBUY>\n'
+            content += '\t\t\t\t\t\t\t<INVTRAN>\n'
+            content += '\t\t\t\t\t\t\t\t<DTTRADE>%s.000[-4:EDT]</DTTRADE>\n' % time_stamp   # 20170716144222.000[-4:EDT]
+            content += '\t\t\t\t\t\t\t\t<FITID>%(id)s</FITID>\n' % kwargs       # 20170716:3002110904
+            content += '\t\t\t\t\t\t\t</INVTRAN>\n'
+            content += '\t\t\t\t\t\t\t<SECID>\n'
+            content += '\t\t\t\t\t\t\t\t<UNIQUEID>%(payee)s</UNIQUEID>\n' % kwargs
+            content += '\t\t\t\t\t\t\t\t<UNIQUEIDTYPE>%(bank)s</UNIQUEIDTYPE>\n' % kwargs
+            content += '\t\t\t\t\t\t\t</SECID>\n'
+            content += '\t\t\t\t\t\t\t<UNITS>1</UNITS>\n'
+            content += '\t\t\t\t\t\t\t<UNITPRICE>%(amount)0.2f</UNITPRICE>\n' % kwargs
+            content += '\t\t\t\t\t\t\t<COMMISSION>0</COMMISSION>\n' % kwargs
+            content += '\t\t\t\t\t\t\t<TAXES>0</TAXES>\n'
+            content += '\t\t\t\t\t\t\t<TOTAL>%0.2f</TOTAL>\n' % (0 - kwargs['amount'])
+            content += '\t\t\t\t\t\t\t<CURRENCY>\n'
+            content += '\t\t\t\t\t\t\t\t<CURRATE>1.0</CURRATE>\n'
+            content += '\t\t\t\t\t\t\t\t<CURSYM>USD</CURSYM>\n'
+            content += '\t\t\t\t\t\t\t</CURRENCY>\n'
+            content += '\t\t\t\t\t\t\t<SUBACCTSEC>CASH</SUBACCTSEC>\n'
+            content += '\t\t\t\t\t\t\t<SUBACCTFUND>CASH</SUBACCTFUND>\n'
+            content += '\t\t\t\t\t\t</INVBUY>\n'
+            content += '\t\t\t\t\t\t<BUYTYPE>BUY</BUYTYPE>\n'
+            content += '\t\t\t\t\t</BUYSTOCK>\n'
 
-        content = '\t\t\t\t\t<STMTTRN>\n'
-        content += '\t\t\t\t\t\t<TRNTYPE>%(type)s</TRNTYPE>\n' % kwargs
-        content += '\t\t\t\t\t\t<DTPOSTED>%s</DTPOSTED>\n' % time_stamp
-        content += '\t\t\t\t\t\t<TRNAMT>%(amount)0.2f</TRNAMT>\n' % kwargs
-        content += '\t\t\t\t\t\t<FITID>%(id)s</FITID>\n' % kwargs
+        else:
+            content =  '\t\t\t\t\t<STMTTRN>\n'
+            content += '\t\t\t\t\t\t<TRNTYPE>%(type)s</TRNTYPE>\n' % kwargs
+            content += '\t\t\t\t\t\t<DTPOSTED>%s</DTPOSTED>\n' % time_stamp
+            content += '\t\t\t\t\t\t<TRNAMT>%(amount)0.2f</TRNAMT>\n' % kwargs
+            content += '\t\t\t\t\t\t<FITID>%(id)s</FITID>\n' % kwargs
 
-        if kwargs.get('check_num') is not None:
-            extra = '\t\t\t\t\t\t<CHECKNUM>%(check_num)s</CHECKNUM>\n'
-            content += extra % kwargs
+            if kwargs.get('check_num') is not None:
+                extra = '\t\t\t\t\t\t<CHECKNUM>%(check_num)s</CHECKNUM>\n'
+                content += extra % kwargs
 
-        if kwargs.get('payee') is not None:
-            content += '\t\t\t\t\t\t<NAME>%(payee)s</NAME>\n' % kwargs
+            if kwargs.get('payee') is not None:
+                content += '\t\t\t\t\t\t<NAME>%(payee)s</NAME>\n' % kwargs
 
-        if kwargs.get('memo'):
-            content += '\t\t\t\t\t\t<MEMO>%(memo)s</MEMO>\n' % kwargs
+            if kwargs.get('memo'):
+                content += '\t\t\t\t\t\t<MEMO>%(memo)s</MEMO>\n' % kwargs
 
-        content += '\t\t\t\t\t</STMTTRN>\n'
+            content += '\t\t\t\t\t</STMTTRN>\n'
+            
         return content
 
     def account_end(self, **kwargs):
@@ -311,7 +343,8 @@ class OFX(Content):
             
         else:
             content = '\t\t\t\t</INVTRANLIST>\n'
-            content += '\t\t\t</INVSTMTTRNRS>\n'
+            content += '\t\t\t\t<DTASOF>%s.000[-4:EDT]</DTASOF>\n' % time_stamp
+            content += '\t\t\t</INVSTMTRS>\n'
         return content
 
     def transfer(self, **kwargs):
@@ -470,7 +503,7 @@ class OFX(Content):
             content = ''
 
         if self.is_investment:
-            content += "\t\t</%s>\n\t</INVSTMTMSGSRSV1>\n</OFX>\n" % self.resp_type # TODOEM: self.resp_type needs to be set to INVSTMTTRNRS by previous processing. Is currently set to STMTTRNRS
+            content += "\t\t</INV%s>\n\t</INVSTMTMSGSRSV1>\n</OFX>\n" % self.resp_type # TODOEM: self.resp_type needs to be set to INVSTMTTRNRS by previous processing. Is currently set to STMTTRNRS
         else:
             content += "\t\t</%s>\n\t</BANKMSGSRSV1>\n</OFX>\n" % self.resp_type
         return content
