@@ -23,6 +23,8 @@ from __future__ import (
 
 from datetime import datetime as dt
 
+from random import randint
+
 from builtins import *
 from meza.fntools import chunk, xmlize
 from meza.process import group
@@ -60,6 +62,7 @@ class OFX(Content):
             'CREDITLINE': ('visa', 'master', 'express', 'discover'),
             'INVESTMENTS': ('brokerage')
         }
+        self.securities = {}
 
     def header(self, **kwargs):
         """ Gets OFX format transaction content
@@ -74,10 +77,10 @@ class OFX(Content):
         Examples:
             >>> kwargs = {'date': dt(2012, 1, 15)}
             >>> header = 'DATA:OFXSGMLENCODING:UTF-8<OFX><SIGNONMSGSRSV1>\
-<SONRS><STATUS><CODE>0</CODE><SEVERITY>INFO</SEVERITY></STATUS><DTSERVER>\
-20120115000000</DTSERVER><LANGUAGE>ENG</LANGUAGE></SONRS></SIGNONMSGSRSV1>\
-<BANKMSGSRSV1><STMTTRNRS><TRNUID></TRNUID><STATUS><CODE>0</CODE><SEVERITY>INFO\
-</SEVERITY></STATUS>'
+                <SONRS><STATUS><CODE>0</CODE><SEVERITY>INFO</SEVERITY></STATUS><DTSERVER>\
+                20120115000000</DTSERVER><LANGUAGE>ENG</LANGUAGE></SONRS></SIGNONMSGSRSV1>\
+                <BANKMSGSRSV1><STMTTRNRS><TRNUID></TRNUID><STATUS><CODE>0</CODE><SEVERITY>INFO\
+                </SEVERITY></STATUS>'
             >>> result = OFX().header(**kwargs)
             >>> header == result.replace('\\n', '').replace('\\t', '')
             True
@@ -96,6 +99,12 @@ class OFX(Content):
         content += '<OFX>\n'
         content += '\t<SIGNONMSGSRSV1>\n'
         content += '\t\t<SONRS>\n'
+
+        # institutional coding required; this is Wells Fargo
+        if self.is_investment:
+            content += '\t\t\t<FI><ORG>3000</ORG></FI><INTU.BID>3000</INTU.BID>\n'
+            content += '\t\t\t<INTU.BID>3000</INTU.BID>\n'
+        
         content += '\t\t\t<STATUS>\n'
         content += '\t\t\t\t<CODE>0</CODE>\n'
         content += '\t\t\t\t<SEVERITY>INFO</SEVERITY>\n'
@@ -106,7 +115,6 @@ class OFX(Content):
         content += '\t</SIGNONMSGSRSV1>\n'
 
         if self.is_investment:
-            print("OFX > investment") # TODOEM: delete
             content += '\t<INVSTMTMSGSRSV1>\n'
             content += '\t\t<INV%s>\n' % self.resp_type
             content += '\t\t\t<TRNUID>0</TRNUID>\n'
@@ -192,14 +200,15 @@ class OFX(Content):
         Examples:
             >>> kwargs = {'start': dt(2012, 1, 1), 'end': dt(2012, 2, 1)}
             >>> akwargs = {'currency': 'USD', 'bank_id': 1, 'account_id': 1, \
-'account_type': 'CHECKING'}
+                'account_type': 'CHECKING'}
             >>> start = '<STMTRS><CURDEF>USD</CURDEF><BANKACCTFROM><BANKID>1\
-</BANKID><ACCTID>1</ACCTID><ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTFROM>\
-<BANKTRANLIST><DTSTART>20120101</DTSTART><DTEND>20120201</DTEND>'
+                </BANKID><ACCTID>1</ACCTID><ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTFROM>\
+                <BANKTRANLIST><DTSTART>20120101</DTSTART><DTEND>20120201</DTEND>'
             >>> result = OFX(**kwargs).account_start(**akwargs)
             >>> start == result.replace('\\n', '').replace('\\t', '')
             True
         """
+        print('[ofx] begin account_start')
         if not self.is_investment:
             kwargs.update({
                 'start_date': self.start.strftime('%Y%m%d'),
@@ -216,19 +225,56 @@ class OFX(Content):
             content += '\t\t\t\t\t<DTEND>%(end_date)s</DTEND>\n' % kwargs
 
         else:
+            print('[ofx] account_start > is investment')
             kwargs.update({
                 'start_date': self.start.strftime('%Y%m%d'),
                 'end_date': self.end.strftime('%Y%m%d')})
             content = '\t\t\t<INVSTMTRS>\n'
             content += '\t\t\t\t<CURDEF>%(currency)s</CURDEF>\n' % kwargs
             content += '\t\t\t\t<INVACCTFROM>\n'
-            content += '\t\t\t\t\t<BROKERID>%(bank_id)s</BROKERID>\n' % kwargs
-            content += '\t\t\t\t\t<ACCTID>%(account_id)s</ACCTID>\n' % kwargs
+            content += '\t\t\t\t\t<BROKERID>ANGELLIST</BROKERID>\n'
+            content += '\t\t\t\t\t<ACCTID>%(account)s</ACCTID>\n' % kwargs
             content += '\t\t\t\t\t<ACCTTYPE>%(account_type)s</ACCTTYPE>\n' % kwargs
             content += '\t\t\t\t</INVACCTFROM>\n'
             content += '\t\t\t\t<INVTRANLIST>\n'
-            content += '\t\t\t\t\t<DTSTART>%(start_date)s</DTSTART>\n' % kwargs
-            content += '\t\t\t\t\t<DTEND>%(end_date)s</DTEND>\n' % kwargs
+            content += '\t\t\t\t\t<DTSTART>%(start_date)s.000[-4:EDT]</DTSTART>\n' % kwargs
+            content += '\t\t\t\t\t<DTEND>%(end_date)s.000[-4:EDT]</DTEND>\n' % kwargs
+            print('[ofx] end account_start')
+
+        return content
+
+
+    def seclist_header(self, **kwargs):
+        """ Gets OFX format transaction account start content
+
+        Args:
+            kwargs (dict): Output from `transaction_data`.
+
+        Kwargs:
+            currency (str): The ISO formatted currency (required).
+            bank_id (str): A unique bank identifier (required).
+            account_id (str): A unique account identifier (required).
+            account_type (str): The account type. One of [
+                'CHECKING', 'SAVINGS', 'MONEYMRKT', 'CREDITLINE'] (required).
+
+        Returns:
+            (str): the OFX content
+
+        Examples:
+            <SECLISTMSGSRSV1>
+                <SECLIST>
+        """
+        print('ofx seclist_header')
+        content = ''
+        if self.is_investment:
+            content = '\t\t\t\t</INVTRANLIST>\n'
+            content += '\t\t\t\t<DTASOF>%s.000[-4:EDT]</DTASOF>\n' % dt.now()
+            content += '\t\t\t</INVSTMTRS>\n'
+            content += "\n\t\t</INV%s>\n\t</INVSTMTMSGSRSV1>\n" % self.resp_type # TODOEM: self.resp_type needs to be set to INVSTMTTRNRS by previous processing. Is currently set to STMTTRNRS
+            content +=  '\t<SECLISTMSGSRSV1>\n'
+            content += '\t\t<SECLIST>\n'
+
+        else:
             pass
         
         return content
@@ -252,20 +298,24 @@ class OFX(Content):
             (str): the OFX content
 
         Examples:
-            >>> kwargs = {'date': dt(2012, 1, 15), 'type': 'DEBIT', \
-'amount': 100, 'id': 1, 'check_num': 1, 'payee': 'payee', 'memo': 'memo'}
-            >>> trxn = '<STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>\
-20120115000000</DTPOSTED><TRNAMT>100.00</TRNAMT><FITID>1</FITID><CHECKNUM>1\
-</CHECKNUM><NAME>payee</NAME><MEMO>memo</MEMO></STMTTRN>'
-            >>> result = OFX().transaction(**kwargs)
+                        >>> kwargs = {'date': dt(2012, 1, 15), 'type': 'DEBIT', \
+            'amount': 100, 'id': 1, 'check_num': 1, 'payee': 'payee', 'memo': 'memo'}
+                        >>> trxn = '<STMTTRN><TRNTYPE>DEBIT</TRNTYPE><DTPOSTED>\
+            20120115000000</DTPOSTED><TRNAMT>100.00</TRNAMT><FITID>1</FITID><CHECKNUM>1\
+            </CHECKNUM><NAME>payee</NAME><MEMO>memo</MEMO></STMTTRN>'
+                        >>> result = OFX().transaction(**kwargs)
             >>> trxn == result.replace('\\n', '').replace('\\t', '')
             True
         """
         time_stamp = kwargs['date'].strftime('%Y%m%d%H%M%S')  # yyyymmddhhmmss
-        print("transaction")
-        print(kwargs)
-        print(self.__dict__)
-        if self.is_investment:
+        print('[ofx] begin transaction')    # TODO EM
+
+        if self.is_investment:  # only buy stock supported
+            security_name = kwargs['payee'].replace(" ", "")
+            if (security_name in self.securities.keys()):
+                pass
+            else:
+                self.securities[security_name] = randint(100000, 10 ** 6)
             content =  '\t\t\t\t\t<BUYSTOCK>\n'
             content += '\t\t\t\t\t\t<INVBUY>\n'
             content += '\t\t\t\t\t\t\t<INVTRAN>\n'
@@ -273,8 +323,8 @@ class OFX(Content):
             content += '\t\t\t\t\t\t\t\t<FITID>%(id)s</FITID>\n' % kwargs       # 20170716:3002110904
             content += '\t\t\t\t\t\t\t</INVTRAN>\n'
             content += '\t\t\t\t\t\t\t<SECID>\n'
-            content += '\t\t\t\t\t\t\t\t<UNIQUEID>%(payee)s</UNIQUEID>\n' % kwargs
-            content += '\t\t\t\t\t\t\t\t<UNIQUEIDTYPE>%(bank)s</UNIQUEIDTYPE>\n' % kwargs
+            content += '\t\t\t\t\t\t\t\t<UNIQUEID>%s</UNIQUEID>\n' % kwargs['payee'].replace(" ", "")
+            content += '\t\t\t\t\t\t\t\t<UNIQUEIDTYPE>%s</UNIQUEIDTYPE>\n' % kwargs['payee'].replace(" ", "")
             content += '\t\t\t\t\t\t\t</SECID>\n'
             content += '\t\t\t\t\t\t\t<UNITS>1</UNITS>\n'
             content += '\t\t\t\t\t\t\t<UNITPRICE>%(amount)0.2f</UNITPRICE>\n' % kwargs
@@ -325,7 +375,7 @@ class OFX(Content):
         Examples:
             >>> kwargs = {'balance': 150, 'date': dt(2012, 1, 15)}
             >>> end = '</BANKTRANLIST><LEDGERBAL><BALAMT>150.00</BALAMT>\
-<DTASOF>20120115000000</DTASOF></LEDGERBAL></STMTRS>'
+                <DTASOF>20120115000000</DTASOF></LEDGERBAL></STMTRS>'
             >>> result = OFX().account_end(**kwargs)
             >>> end == result.replace('\\n', '').replace('\\t', '')
             True
@@ -340,11 +390,8 @@ class OFX(Content):
                 content += '\t\t\t\t\t<DTASOF>%s</DTASOF>\n' % time_stamp
                 content += '\t\t\t\t</LEDGERBAL>\n'
             content += '\t\t\t</STMTRS>\n'
-            
         else:
-            content = '\t\t\t\t</INVTRANLIST>\n'
-            content += '\t\t\t\t<DTASOF>%s.000[-4:EDT]</DTASOF>\n' % time_stamp
-            content += '\t\t\t</INVSTMTRS>\n'
+            content = ''
         return content
 
     def transfer(self, **kwargs):
@@ -369,11 +416,11 @@ class OFX(Content):
 
         Examples:
             >>> kwargs = {'currency': 'USD', 'date': dt(2012, 1, 15), \
-'bank_id': 1, 'account_id': 1, 'account_type': 'CHECKING', 'amount': 100, \
-'id': 'jbaevf'}
+                'bank_id': 1, 'account_id': 1, 'account_type': 'CHECKING', 'amount': 100, \
+                'id': 'jbaevf'}
             >>> trxn = '<INTRARS><CURDEF>USD</CURDEF><SRVRTID>jbaevf</SRVRTID>\
-<XFERINFO><TRNAMT>100.00</TRNAMT><BANKACCTFROM><BANKID>1</BANKID><ACCTID>1\
-</ACCTID><ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTFROM>'
+                <XFERINFO><TRNAMT>100.00</TRNAMT><BANKACCTFROM><BANKID>1</BANKID><ACCTID>1\
+                </ACCTID><ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTFROM>'
             >>> result = OFX().transfer(**kwargs)
             >>> trxn == result.replace('\\n', '').replace('\\t', '')
             True
@@ -422,17 +469,17 @@ class OFX(Content):
 
         Examples:
             >>> kwargs = {'bank_id': 1, 'split_account': 'Checking', \
-'split_account_id': 2, 'split_account_type': 'CHECKING', 'amount': 100 , \
-'id': 'jbaevf'}
+                'split_account_id': 2, 'split_account_type': 'CHECKING', 'amount': 100 , \
+                'id': 'jbaevf'}
             >>> split = '<BANKACCTTO><BANKID>1</BANKID><ACCTID>2</ACCTID>\
-<ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTTO>'
+                <ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTTO>'
             >>> result = OFX().split_content(**kwargs)
             >>> split == result.replace('\\n', '').replace('\\t', '')
             True
             >>> kwargs = {'bank_id': 1, 'account': 'Checking', 'account_id': \
-3, 'account_type': 'CHECKING', 'amount': 100 , 'id': 'jbaevf'}
+                3, 'account_type': 'CHECKING', 'amount': 100 , 'id': 'jbaevf'}
             >>> split = '<BANKACCTTO><BANKID>1</BANKID><ACCTID>3</ACCTID>\
-<ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTTO>'
+                <ACCTTYPE>CHECKING</ACCTTYPE></BANKACCTTO>'
             >>> result = OFX().split_content(**kwargs)
             >>> split == result.replace('\\n', '').replace('\\t', '')
             True
@@ -478,6 +525,70 @@ class OFX(Content):
         content += '\t\t\t</INTRARS>\n'
         return content
 
+
+    def gen_seclist(self, **kwargs):
+        """ Gets OFX format list of securities for end of file
+
+        Args:
+            kwargs (dict): Output from `transaction_data`.
+
+        Kwargs:
+            date (datetime): the transaction date (required)
+            type (str): the transaction type (required)
+            amount (number): the transaction amount (required)
+            id (str): the transaction id (required)
+            check_num (str): the check num
+            payee (str): the payee (required)
+            memo (str): the transaction memo
+
+        Returns:
+            (str): the OFX content
+
+        Examples:
+            <SECLISTMSGSRSV1>
+                <SECLIST>
+                    <STOCKINFO>
+                        <SECINFO>
+                            <SECID>
+                                <UNIQUEID>Airtable</UNIQUEID>
+                                <UNIQUEIDTYPE>AL</UNIQUEIDTYPE>
+                            </SECID>
+                            <SECNAME>Secname</SECNAME>
+                            <TICKER>Ticker</TICKER>
+                            <FIID>998877</FIID>
+                        </SECINFO>
+                    </STOCKINFO>
+                </SECLIST>
+            </SECLISTMSGSRSV1>
+        """
+        print("[ofx] begin seclist > kwargs") # TODOEM: delete
+        print(kwargs)
+        content = ''
+        if self.is_investment:
+            print("[ofx] [seclist] is_investment")
+            for name in self.securities.keys():
+                content = '\t\t\t<STOCKINFO>\n'
+                content += '\t\t\t\t<SECINFO>\n'
+                content += '\t\t\t\t\t<SECID>\n'
+                content += '\t\t\t\t\t\t<UNIQUEID>%s</UNIQUEID>\n' % name
+                content += '\t\t\t\t\t\t<UNIQUEIDTYPE>%s</UNIQUEIDTYPE>\n' % name # This is specific to angel list. 
+                content += '\t\t\t\t\t</SECID>\n'
+                content += '\t\t\t\t\t<SECNAME>%s-name</SECNAME>\n' % name
+                content += '\t\t\t\t\t<TICKER>1</TICKER>\n'
+                content += '\t\t\t\t\t<FIID>%d</FIID>\n' % self.securities[name]
+                content += '\t\t\t\t</SECINFO>\n'
+                content += '\t\t\t</STOCKINFO>\n'
+                yield content
+
+        else:
+            print("[ofx] [seclist] not investment")
+            content = ''
+            
+        print("[ofx] seclist end") # TODOEM: delete
+
+        return content
+
+
     def footer(self, **kwargs):
         """ Gets OFX transfer end
 
@@ -494,7 +605,6 @@ class OFX(Content):
             True
         """
         kwargs.setdefault('date', dt.now())
-
         if self.is_split:
             content = self.transfer_end(**kwargs)
         elif not self.split_account:
@@ -502,15 +612,24 @@ class OFX(Content):
         else:
             content = ''
 
+        print('[ofx] begin footer > footer should be defined')
+
+
         if self.is_investment:
-            content += "\t\t</INV%s>\n\t</INVSTMTMSGSRSV1>\n</OFX>\n" % self.resp_type # TODOEM: self.resp_type needs to be set to INVSTMTTRNRS by previous processing. Is currently set to STMTTRNRS
+            content = '\t\t</SECLIST>\n'
+            content += '\t</SECLISTMSGSRSV1>\n'
+            content += '</OFX>\n'
+
         else:
             content += "\t\t</%s>\n\t</BANKMSGSRSV1>\n</OFX>\n" % self.resp_type
+        
         return content
 
     def gen_body(self, data):  # noqa: C901
         """ Generate the OFX body """
+        print('[ofx] begin gen_body')
         for datum in data:
+            print('datum', datum)
             grp = datum['group']
 
             if self.is_split and datum['len'] > 2:
@@ -536,10 +655,21 @@ class OFX(Content):
             elif self.is_split:
                 yield self.split_content(**trxn_data)
             elif datum['is_main']:
+                print('[ofx] gen body > main')
                 yield self.account_start(**trxn_data)
+                print('[ofx] gen body > main > after account_start')
                 yield self.transaction(**trxn_data)
+                print('[ofx] gen body > main > after transaction')
+                # if self.is_investment:
+                #     yield self.seclist_header(**trxn_data)
+                #     print('[ofx] gen body > main > seclist_header')
             else:
+                print('[ofx] gen body > other path, datum:')
+                print(datum)
                 yield self.transaction(**trxn_data)
+                # if self.is_investment:
+                #     yield self.gen_seclist(**trxn_data)
+                #     print('[ofx] gen body > other path > after seclist')
 
             self.prev_group = grp
 

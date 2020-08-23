@@ -154,6 +154,8 @@ def run():  # noqa: C901
         cleaned_trxns = cont.clean_trxns(trxns)
         data = utils.gen_data(cleaned_trxns)
         body = cont.gen_body(data)
+        print("[main] cont after body creation")
+        print(cont.__dict__)
 
         if args.server_date:
             server_date = parse(args.server_date)
@@ -166,9 +168,17 @@ def run():  # noqa: C901
             server_date = dt.fromtimestamp(mtime)
 
         header = cont.header(date=server_date, language=args.language)
+        print("[main] > got header") # TODOEM: delete
         footer = cont.footer(date=server_date)
-        filtered = filter(None, [header, body, footer])
+        print("[main] > got footer") # TODOEM: delete
+
+        seclist_header = cont.seclist_header(date=server_date)
+        seclist = cont.gen_seclist(date=server_date)
+        print("[main] > got seclist:", seclist)
+
+        filtered = filter(None, [header, body, seclist_header, seclist, footer])
         content = it.chain.from_iterable(filtered)
+        print("[main] > got content") # TODOEM: delete
         kwargs = {
             'overwrite': args.overwrite,
             'chunksize': args.chunksize,
@@ -185,6 +195,8 @@ def run():  # noqa: C901
         msg = 'Field %s is missing from file. Check `mapping` option.' % err
     except TypeError as err:
         msg = 'No data to write. %s. ' % str(err)
+        print(c for c in content) # TODOEM: delete
+
 
         if args.collapse:
             msg += 'Check `start` and `end` options.'
